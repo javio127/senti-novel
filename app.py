@@ -1,8 +1,17 @@
+import os
+import subprocess
+
+# Ensure required packages are installed
+missing_packages = ["openai", "bertopic", "pandas", "requests"]
+for package in missing_packages:
+    subprocess.run(["pip", "install", package])
+
 import streamlit as st
 import openai
 import requests
 from bertopic import BERTopic
 import pandas as pd
+
 
 # Set your OpenAI API Key
 openai.api_key = "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"
