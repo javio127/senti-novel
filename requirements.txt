@@ -1,6 +1,6 @@
-streamlit
-openai
-bertopic
-pandas
-requests
-beautifulsoup4
+streamlit==1.43.2
+openai==1.6.3
+bertopic==0.16.4
+pandas==2.2.3
+requests==2.32.3
+beautifulsoup4==4.13.3
