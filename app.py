@@ -2,9 +2,15 @@ import os
 import subprocess
 
 # Ensure required packages are installed
-missing_packages = ["openai", "bertopic", "pandas", "requests"]
-for package in missing_packages:
-    subprocess.run(["pip", "install", package])
+import sys
+
+# Ensure OpenAI is installed before importing
+try:
+    import openai
+except ModuleNotFoundError:
+    subprocess.run([sys.executable, "-m", "pip", "install", "openai"])
+    import openai  # Retry after install
+
 
 import streamlit as st
 import openai
