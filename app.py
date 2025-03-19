@@ -18,9 +18,12 @@ import time
 from random import choice
 import concurrent.futures
 
-# Load environment variables from .env file
-load_dotenv()
+# Update the environment variable loading to work with Streamlit Cloud
+# Load environment variables from .env file if it exists (for local development)
+if os.path.exists(".env"):
+    load_dotenv()
 
+<<<<<<< Updated upstream
 # Load API keys securely from environment variables
 openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
 
@@ -29,6 +32,18 @@ newsdata_api_key = os.getenv("NEWSDATA_API_KEY", "pub_75348cb30f5a5794f5c8910692
 
 if not newsdata_api_key:
     st.warning("⚠️ No NEWSDATA_API_KEY found. Please make sure it's available.")
+=======
+# Load API keys securely from environment variables with fallbacks
+openai_api_key = os.getenv("OPENAI_API_KEY", st.secrets.get("OPENAI_API_KEY", "")).strip()
+
+# Replace News API with NewsData.io API
+newsdata_api_key = os.getenv("NEWS_DATA_API_KEY", 
+                            st.secrets.get("NEWS_DATA_API_KEY", 
+                            "pub_75348cb30f5a5794f5c8910692560fcf8d530")).strip()
+
+if not newsdata_api_key:
+    st.warning("⚠️ No NEWS_DATA_API_KEY found. Please make sure it's available.")
+>>>>>>> Stashed changes
 
 # Filter out empty keys
 news_api_keys = [
@@ -1194,4 +1209,6 @@ if st.button("Predict Novel Threats", type="primary", use_container_width=True):
                 st.warning("⚠️ Could not generate an image for this risk.")
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+
 
