@@ -5,10 +5,11 @@ import requests
 import pandas as pd
 from bertopic import BERTopic
 from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 
 # Load API keys securely from environment variables
 openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
-news_api_key = "c8feaea3b6b04bc48192f3dc9b698dc8"  # Hardcoded for fetching live data
+news_api_key = "c8feaea3b6b04bc48192f3dc9b698dc8"  # Hardcoded API key (consider storing in env variables)
 
 # Debugging: Check if the keys are correctly set
 if not openai_api_key.startswith("sk-"):
@@ -21,28 +22,71 @@ if not news_api_key:
 # Initialize OpenAI client
 client = openai.Client(api_key=openai_api_key)
 
-# ✅ Fetch news based on the user's risk category
-def fetch_data(risk_category):
+# ✅ Clean and expand user query
+def clean_and_expand_query(user_input):
     """
-    Fetch relevant news articles based on the user's input risk category.
-    Fetches real-time data from the NewsAPI.
-
+    Cleans the user query and expands it using OpenAI.
+    
     Args:
-        risk_category (str): The user-defined risk category.
+        user_input (str): The original risk category input.
 
     Returns:
-        list: A list of news headlines relevant to the risk category.
+        str: A comma-separated list of expanded search terms.
     """
-    url = f"https://newsapi.org/v2/everything?q={risk_category}&language=en&apiKey={news_api_key}"
+    # Remove common stopwords
+    words = user_input.lower().split()
+    cleaned_words = [word for word in words if word not in ENGLISH_STOP_WORDS]
+    cleaned_query = " ".join(cleaned_words)
+
+    # Expand search terms using OpenAI
+    prompt = f"""
+    Expand this risk-related query into multiple relevant search keywords:
     
+    Example:
+    'cybersecurity threats' → 'cybersecurity risks, data breaches, hacking incidents, ransomware attacks'
+
+    User input: {cleaned_query}
+    Expanded query:
+    """
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4-turbo",
+            messages=[{"role": "system", "content": prompt}]
+        )
+        expanded_terms = response.choices[0].message.content.strip()
+        return expanded_terms.replace("\n", ", ")  # Convert to a comma-separated string
+    except Exception as e:
+        st.warning(f"⚠️ Error expanding query: {e}")
+        return cleaned_query  # Fallback to original query if expansion fails
+
+# ✅ Fetch detailed news articles
+def fetch_data(risk_category, num_articles=50):
+    """
+    Fetch full news article texts based on the user's input risk category.
+    
+    Args:
+        risk_category (str): The user-defined risk category.
+        num_articles (int): Number of articles to fetch.
+
+    Returns:
+        list: A list of full article texts.
+    """
+    expanded_query = clean_and_expand_query(risk_category)
+    url = f"https://newsapi.org/v2/everything?q={expanded_query}&language=en&pageSize={num_articles}&apiKey={news_api_key}"
+
     try:
         response = requests.get(url)
         response.raise_for_status()
         data = response.json()
-        
-        # Extract top 5 headlines related to the risk category
-        headlines = [article["title"] for article in data.get("articles", [])[:5]]
-        return headlines if headlines else [f"⚠️ No news found for '{risk_category}'."]
+
+        # Extract full content of the articles
+        articles = [
+            article["content"] or article["description"]  # Use description if content is missing
+            for article in data.get("articles", []) if article.get("content")
+        ]
+
+        return articles if articles else [f"⚠️ No detailed news found for '{risk_category}'."]
     
     except requests.exceptions.RequestException as e:
         st.error(f"⚠️ Error fetching news: {e}")
@@ -60,31 +104,27 @@ def get_embeddings(texts):
         st.error(f"⚠️ Error generating embeddings: {e}")
         st.stop()
 
-# ✅ Cluster topics using BERTopic with better error handling and sparse matrix fix
+# ✅ Cluster topics using BERTopic
 def cluster_topics(texts):
     try:
-        # Vectorizing the text data using CountVectorizer (you can also use TF-IDF)
-        vectorizer = CountVectorizer(stop_words="english")
-        embeddings = vectorizer.fit_transform(texts)
-        
-        # Convert sparse matrix to dense
-        embeddings_dense = embeddings.toarray()  # Convert sparse matrix to dense
+        # Generate embeddings from OpenAI instead of CountVectorizer
+        embeddings = get_embeddings(texts)
 
-        # Dynamically adjust n_topics if needed to avoid the error (based on available data size)
-        num_topics = min(10, len(texts) - 1)  # Ensure n_topics is less than the number of texts
+        # Dynamically adjust n_topics to avoid errors
+        num_topics = min(10, len(texts) - 1) if len(texts) > 1 else 1
 
         # Initialize BERTopic
-        topic_model = BERTopic(n_topics=num_topics)  # Set the number of topics dynamically
+        topic_model = BERTopic(n_topics=num_topics)
         
-        # Fit the topic model using the dense matrix
-        topics, _ = topic_model.fit_transform(texts, embeddings_dense)
+        # Fit the topic model
+        topics, _ = topic_model.fit_transform(texts, embeddings)
         
         return topic_model.get_topic_info()
     except Exception as e:
         st.error(f"⚠️ Error in topic modeling: {e}")
         return None
 
-# ✅ Generate a risk hypothesis using GPT-4 Turbo with severity as a numeric score
+# ✅ Generate a risk hypothesis using GPT-4 Turbo
 def generate_risk_hypothesis(cluster_summary, risk_category):
     if not cluster_summary:
         return "⚠️ Not enough data to generate a risk hypothesis."
@@ -99,20 +139,16 @@ def generate_risk_hypothesis(cluster_summary, risk_category):
     Provide:
     1. A structured risk hypothesis
     2. A probability score (0-1)
-    3. An estimated severity score (0-100) based on:
-       - Direct deaths (e.g., immediate loss of life due to the event)
-       - Indirect deaths (e.g., deaths caused by secondary effects like infrastructure collapse, disease, or economic instability)
-    4. A justification for the severity score:
-       - Explain why the score falls in the given range.
-       - Provide real-world analogies or past events that support the estimate.
+    3. An estimated severity score (0-100)
+    4. A justification for the severity score, using real-world analogies.
 
     Format your response as:
     **Risk Hypothesis:** [Title]
     **Description:** [Detailed description]
     
-    **1. Probability Score:** [Numeric 0-1]
-    **2. Severity Score:** [Numeric 0-100]
-    **3. Justification:** [Explanation including direct & indirect deaths]
+    **1. Probability Score:** [0-1]
+    **2. Severity Score:** [0-100]
+    **3. Justification:** [Explanation]
     """
 
     try:
@@ -128,7 +164,7 @@ def generate_risk_hypothesis(cluster_summary, risk_category):
         st.error(f"⚠️ Error generating risk hypothesis: {e}")
         st.stop()
 
-# ✅ Generate AI art using DALL·E with user-defined risk category
+# ✅ Generate AI art using DALL·E
 def generate_image(risk_text, risk_category):
     try:
         response = client.images.generate(
@@ -176,3 +212,4 @@ if st.button("Generate Risks"):
         st.image(image_url, caption=f"AI-Generated Visualization for '{query}'")
     else:
         st.write("⚠️ Image generation failed.")
+
