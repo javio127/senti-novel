@@ -793,7 +793,6 @@ def generate_image(risk_text, risk_category):
         st.stop()
 
 # ✅ Streamlit UI Setup
-st.title("Novel Global Threat Predictor")
 st.write("Identify novel or underappreciated global threats that could emerge between 2025-2035")
 
 # Add this after the title and before the risk category input
